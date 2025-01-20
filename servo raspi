@@ -1,0 +1,78 @@
+# -*- coding: utf-8 -*-
+import os
+import RPi.GPIO as GPIO
+import lgpio
+import time
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
+
+token = "k5AQ2I4QJTQpuQ5z6j-l6RI_f3VLgVAwFojBzjNevqhkj-gJ7e73uBqvspOnInur6paYOGfUvHSfQEdPsRJ4xw=="
+org = "pnb"
+host = "https://us-east-1-1.aws.cloud2.influxdata.com"
+
+database = "servo"
+
+print(f"Using token: {token}")
+print(f"Organization: {org}, Host: {host}, Bucket: {database}")
+
+client = InfluxDBClient(url=host, token=token, org=org)
+write_api = client.write_api(write_options=SYNCHRONOUS)
+
+# Konfigurasi GPIO untuk servo
+GPIO.setmode(GPIO.BCM)
+SERVO_PIN = 18  # Pin GPIO untuk servo
+GPIO.setup(SERVO_PIN, GPIO.OUT)
+
+# Inisialisasi PWM untuk servo
+pwm = GPIO.PWM(SERVO_PIN, 50)  # Frekuensi 50Hz
+pwm.start(0)  # Mulai PWM dengan duty cycle 0
+
+def set_servo_angle(angle):
+    """Mengatur sudut servo."""
+    duty = 2 + (angle / 18)  # Konversi sudut ke duty cycle
+    GPIO.output(SERVO_PIN, True)
+    pwm.ChangeDutyCycle(duty)
+    time.sleep(0.5)  # Tunggu servo bergerak
+    GPIO.output(SERVO_PIN, False)
+    pwm.ChangeDutyCycle(0)
+
+try:
+    while True:
+        for angle in range(0, 181, 10):  # Putar servo dari 0 ke 180 derajat
+            set_servo_angle(angle)
+            print(f"Servo moved to {angle}")
+
+            # Buat point untuk sudut servo
+            point_angle = (
+                Point("sudut")  # Measurement bernama "sudut"
+                .tag("location", "RaspberryPi")
+                .field("servo_angle", angle)
+            )
+
+            # Tulis ke database InfluxDB
+            write_api.write(bucket=database, org=org, record=point_angle)
+
+            print(f"Data sent: Servo Angle={angle}")
+            time.sleep(1)  # Tunggu 1 detik sebelum sudut berikutnya
+
+        for angle in range(180, -1, -10):  # Putar servo dari 180 ke 0 derajat
+            set_servo_angle(angle)
+            print(f"Servo moved to {angle}")
+
+            # Buat point untuk sudut servo
+            point_angle = (
+                Point("sudut")  # Measurement bernama "sudut"
+                .tag("location", "RaspberryPi")
+                .field("servo_angle", angle)
+            )
+
+            # Tulis ke database InfluxDB
+            write_api.write(bucket=database, org=org, record=point_angle)
+
+            print(f"Data sent: Servo Angle={angle}")
+            time.sleep(1)  # Tunggu 1 detik sebelum sudut berikutnya
+
+except KeyboardInterrupt:
+    print("Program dihentikan.")
+    pwm.stop()
+    GPIO.cleanup()
